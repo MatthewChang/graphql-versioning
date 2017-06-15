@@ -17,9 +17,18 @@ describe GraphQL::Versioning::Instrumentation do
       name 'Session'
       description 'A Call9 Session'
       field :id, !types.ID, resolve: hashAccess.call(:id)
-      field :field, !types.String, resolve: hashAccess.call(:field)
-      field :field, !types.String, resolve: hashAccess.call(:field)
-      
+      field :value do
+        versions ({
+          1 => GraphQL::Field.define do
+            type !types.Int
+            resolve ->(obj, args, context) { 5 }
+          end,
+          2 => GraphQL::Field.define do
+            type !types.String
+            resolve hashAccess.call(:value)
+          end
+        })
+      end
       field :chat_messages, types[ChatMessageType], resolve: ->(obj, _args, _ctx) {
         obj[:chat_messages].map { |e| ChatMessages[e] }
       }
@@ -43,17 +52,19 @@ describe GraphQL::Versioning::Instrumentation do
       end
     end
 
-    Schema = GraphQL::Schema.define do
-      instrument(:field, GraphQL::Versioning::Instrumentation.new(1))
-      query QueryType
-    end
+    @schemaForVersion = ->(version) {
+      Schema = GraphQL::Schema.define do
+        instrument(:field, GraphQL::Versioning::Instrumentation.new(version))
+        query QueryType
+      end
+    }
 
     Sessions = {
       1 => {
-        id: 1, field: 'test', chat_messages: [1]
+        id: 1, value: 'test', chat_messages: [1]
       },
       2 => {
-        id: 2, field: 'data2', chat_messages: []
+        id: 2, value: 'data2', chat_messages: []
       }
     }.freeze
     ChatMessages = {
@@ -69,7 +80,8 @@ describe GraphQL::Versioning::Instrumentation do
   end
 
   it 'selects the most current version before or equal to the specified version' do
-    query = '{session(id: 1) { id }}'
-    puts @executeQuery.call query: query
+    query = '{session(id: 1) { id value }}'
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(1))).to eq 'data' => { 'session' => { 'id' => '1', 'value' => 5 } }
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(2))).to eq 'data' => { 'session' => { 'id' => '1', 'value' => 'test' } }
   end
 end
