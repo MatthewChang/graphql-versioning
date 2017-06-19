@@ -80,8 +80,30 @@ describe GraphQL::Versioning::Instrumentation do
   end
 
   it 'selects the most current version before or equal to the specified version' do
-    query = '{session(id: 1) { id value }}'
-    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(1))).to eq 'data' => { 'session' => { 'id' => '1', 'value' => 5 } }
-    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(2))).to eq 'data' => { 'session' => { 'id' => '1', 'value' => 'test' } }
+    query = '{session(id: 1) { value }}'
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(1))).to eq 'data' => { 'session' => { 'value' => 5 } }
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(2))).to eq 'data' => { 'session' => { 'value' => 'test' } }
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(3))).to eq 'data' => { 'session' => { 'value' => 'test' } }
+  end
+
+  it 'raises an error if version older than the oldest version is requested' do
+    query = '{session(id: 1) { value }}'
+    expect { @executeQuery.call(query: query, schema: @schemaForVersion.call(0)) }.to raise_error 'no version available'
+  end
+
+  it 'gets the only version if the field is non-versioned' do
+    query = '{session(id: 1) { id }}'
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(0))).to eq 'data' => { 'session' => { 'id' => '1' } }
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(1))).to eq 'data' => { 'session' => { 'id' => '1' } }
+    expect(@executeQuery.call(query: query, schema: @schemaForVersion.call(5))).to eq 'data' => { 'session' => { 'id' => '1' } }
+  end
+
+  context 'with version whitelist' do
+    it 'acts as if the field does not exist if an invalid version for that field is requested' do
+      query = '{session(id: 1) { value }}'
+      schema = @schemaForVersion.call(0)
+      res = schema.execute(query, only: GraphQL::Versioning::VersionWhitelist.new(0))
+      expect(res['errors'][0]['message']).to eq "Field 'value' doesn't exist on type 'Session'"
+    end
   end
 end
